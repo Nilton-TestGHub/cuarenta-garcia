@@ -26,13 +26,35 @@ export default function TablePage(){
     if (id && me) ensure()
   },[id, me])
 
-  useEffect(()=>{
-    load()
-    const ch = supabase.channel('table-'+id)
-      .on('postgres_changes', { event:'*', schema:'public', table:'game_states', filter: f"table_id=eq.{id}" }, load)
-      .subscribe()
-    return ()=>{ supabase.removeChannel(ch) }
-  },[id])
+  useEffect(() => {
+    if (!id) return;
+
+    async function loadState() {
+      const { data } = await supabase
+        .from('game_states')
+        .select('*')
+        .eq('table_id', id)
+        .single();
+      setState(data?.state || null);
+    }
+
+    // initial load
+    loadState();
+
+    // realtime updates
+    const channel = supabase
+      .channel(`table-${id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'game_states', filter: `table_id=eq.${id}` },
+        loadState
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id]);
 
   async function load(){
     const { data } = await supabase.from('game_states').select('*').eq('table_id', id).single()
