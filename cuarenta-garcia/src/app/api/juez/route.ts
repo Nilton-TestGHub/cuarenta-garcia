@@ -6,14 +6,47 @@ import { DEFAULT_PARTNERS } from '@/lib/names'
 export async function POST(req: NextRequest){
   const { action, tableId, mode, player, card } = await req.json()
 
-  if (action==='start'){
-    const players = mode==='solo'
-      ? ['Nilton','Michael']
-      : [DEFAULT_PARTNERS[0][0], DEFAULT_PARTNERS[1][0], DEFAULT_PARTNERS[0][1], DEFAULT_PARTNERS[1][1]]
-    const state = startGame(mode, players)
-    await supabase.from('game_states').upsert({ table_id: tableId, state }).select()
-    return NextResponse.json({ ok:true })
+  if (action === 'start') {
+  // Who has joined this mesa?
+  const { data: joined, error: jerr } = await supabase
+    .from('table_players')
+    .select('player_name, joined_at')
+    .eq('table_id', tableId)
+    .order('joined_at', { ascending: true });
+
+  if (jerr) {
+    return NextResponse.json({ error: jerr.message }, { status: 400 });
   }
+
+  let players: string[] = [];
+
+  if (mode === 'solo') {
+    players = (joined?.map(r => r.player_name) ?? []).slice(0, 2);
+    if (players.length < 2) {
+      return NextResponse.json({ error: 'Necesitas 2 jugadores en la mesa antes de iniciar.' }, { status: 400 });
+    }
+  } else {
+    // Prefer fixed partners if both members are present. Seat A-B-A-B so partners sit enfrente.
+    const present = new Set(joined?.map(r => r.player_name) ?? []);
+    const preferred: string[] = [];
+    for (const [a, b] of DEFAULT_PARTNERS) {
+      if (present.has(a) && present.has(b)) preferred.push(a, b);
+    }
+    if (preferred.length >= 4) {
+      players = [preferred[0], preferred[2], preferred[1], preferred[3]];
+    } else {
+      const first4 = (joined?.map(r => r.player_name) ?? []).slice(0, 4);
+      if (first4.length < 4) {
+        return NextResponse.json({ error: 'Se requieren 4 jugadores para parejas.' }, { status: 400 });
+      }
+      players = [first4[0], first4[2], first4[1], first4[3]];
+    }
+  }
+
+  const state = startGame(mode, players);
+  await supabase.from('game_states').upsert({ table_id: tableId, state });
+  return NextResponse.json({ ok: true });
+}
 
   if (action==='play'){
     const { data } = await supabase.from('game_states').select('*').eq('table_id', tableId).single()
