@@ -19,12 +19,26 @@ export default function TablePage(){
     else setMe(n)
   },[r])
 
-  useEffect(()=>{
-    async function ensure(){
-      await supabase.from('table_players').upsert({ table_id:id, player_name: me }).select()
+ useEffect(() => {
+    async function ensure() {
+      // 1) Create the row only if it doesn't exist (no duplicates)
+      await supabase
+        .from('table_players')
+        .upsert(
+          { table_id: id, player_name: me },
+          { onConflict: 'table_id,player_name' }
+        );
+
+      // 2) First join: set joined_at once (keeps join order stable)
+      await supabase
+        .from('table_players')
+        .update({ joined_at: new Date().toISOString() })
+        .eq('table_id', id)
+        .eq('player_name', me)
+        .is('joined_at', null);
     }
-    if (id && me) ensure()
-  },[id, me])
+    if (id && me) { void ensure(); }
+  }, [id, me]);
 
   useEffect(() => {
     if (!id) return;
